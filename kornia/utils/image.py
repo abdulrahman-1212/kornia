@@ -282,28 +282,30 @@ def perform_keep_shape_image(f: Callable[..., Tensor]) -> Callable[..., Tensor]:
     It works by first viewing the image as `(B, C, H, W)`, applying the function and re-viewing the image as original
     shape.
     """
-
     @wraps(f)
     def _wrapper(input: Tensor, *args: Any, **kwargs: Any) -> Tensor:
         if not isinstance(input, Tensor):
             raise TypeError(f"Input input type is not a Tensor. Got {type(input)}")
-
-        if input.shape.numel() == 0:
+        if input.numel() == 0:
             raise ValueError("Invalid input tensor, it is empty.")
 
         input_shape = input.shape
-        input = _to_bchw(input)  # view input as (B, C, H, W)
-        output = f(input, *args, **kwargs)
-        if len(input_shape) == 3:
-            output = output[0]
+        in_ndim = len(input_shape)
+        input_bchw = _to_bchw(input)
+        output = f(input_bchw, *args, **kwargs)
 
-        if len(input_shape) == 2:
-            output = output[0, 0]
-
-        if len(input_shape) > 4:
-            output = output.view(*(input_shape[:-3] + output.shape[-3:]))
-
-        return output
+        # Fast dispatch for typical dims
+        if in_ndim == 4:
+            return output
+        elif in_ndim == 3:
+            return output[0]
+        elif in_ndim == 2:
+            return output[0, 0]
+        elif in_ndim > 4:
+            return output.view(*input_shape[:-3], *output.shape[-3:])
+        else:
+            # Not expected, handled in _to_bchw above
+            raise ValueError(f"Unsupported input shape {input_shape}.")
 
     return _wrapper
 
@@ -338,3 +340,21 @@ def perform_keep_shape_video(f: Callable[..., Tensor]) -> Callable[..., Tensor]:
         return output
 
     return _wrapper
+
+
+# Helper: minimal version of _to_bchw, assumes input is Tensor
+def _to_bchw(input: Tensor) -> Tensor:
+    # Only reshape if not already (B, C, H, W)
+    if input.ndim == 4:
+        return input
+    elif input.ndim == 3:
+        # shape (C, H, W) --> (1, C, H, W)
+        return input.unsqueeze(0)
+    elif input.ndim == 2:
+        # shape (H, W) --> (1, 1, H, W)
+        return input.unsqueeze(0).unsqueeze(0)
+    elif input.ndim > 4:
+        # Collapse leading dims: (*, C, H, W) -> (-1, C, H, W)
+        return input.view(-1, *input.shape[-3:])
+    else:
+        raise ValueError(f"Unsupported input tensor with ndim={input.ndim}")

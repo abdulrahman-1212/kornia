@@ -105,29 +105,30 @@ def deprecated(
     """Mark methods as deprecated."""
 
     def _deprecated(func: Callable[..., Any]) -> Any:
+        # Precompute the function/class name and prepare warning message at decoration time for efficiency
+        if isclass(func):
+            name = func.__class__.__name__
+        elif isfunction(func):
+            name = func.__name__
+        else:
+            name = getattr(func, "__name__", str(func))
+        beginning = f"Since kornia {version} the " if version is not None else ""
+        if not extra_reason:
+            extra_reason_msg = ""
+        else:
+            extra_reason_msg = extra_reason
+        if replace_with is not None:
+            warning_msg = (
+                f"{beginning}`{name}` is deprecated in favor of `{replace_with}`.{extra_reason_msg}"
+            )
+        else:
+            warning_msg = (
+                f"{beginning}`{name}` is deprecated and will be removed in the future versions.{extra_reason_msg}"
+            )
+
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            name = ""
-            beginning = f"Since kornia {version} the " if version is not None else ""
-
-            if isclass(func):
-                name = func.__class__.__name__
-            if isfunction(func):
-                name = func.__name__
-            warnings.simplefilter("always", DeprecationWarning)
-            if replace_with is not None:
-                warnings.warn(
-                    f"{beginning}`{name}` is deprecated in favor of `{replace_with}`.{extra_reason}",
-                    category=DeprecationWarning,
-                    stacklevel=2,
-                )
-            else:
-                warnings.warn(
-                    f"{beginning}`{name}` is deprecated and will be removed in the future versions.{extra_reason}",
-                    category=DeprecationWarning,
-                    stacklevel=2,
-                )
-            warnings.simplefilter("default", DeprecationWarning)
+            warnings.warn(warning_msg, category=DeprecationWarning, stacklevel=2)
             return func(*args, **kwargs)
 
         return wrapper
